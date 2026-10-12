@@ -1,0 +1,18 @@
+{
+  "parameters": 109529856,
+  "global_step": 14411,
+  "training_tokens": 1888682419,
+  "epoch": 1,
+  "final_saved": true,
+  "best_observed_full_validation_loss": 2.3403474210523463,
+  "training_runtime": {
+    "torch": "2.7.1+cu118",
+    "cuda": "11.8",
+    "python": "3.13.15",
+    "device": "cuda"
+  },
+  "data_checksums": {
+    "manifest_sha256": "41b917d620635ec27c5a1f725c69c96d9687b77248dc29cadbf9e0b45171b45d",
+    "tokenizer_sha256": "863945d0e4b656eee448fe84fc622e416677a378c6ab88e2153edd7611ab0355"
+  }
+}

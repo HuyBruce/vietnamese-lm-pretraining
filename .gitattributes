@@ -1,0 +1,2 @@
+# The historical resume contract hashes raw bytes; preserve this source as LF.
+/scripts/pretrain_dataset.py text eol=lf

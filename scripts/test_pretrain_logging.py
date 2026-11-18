@@ -129,7 +129,37 @@ class CompatibilityTests(unittest.TestCase):
         upgrades = json.loads((folder / 'pretrain_logging_upgrade.json').read_text())
         self.assertEqual(set(upgrades), {'train_pretrain.py', 'pretrain_checkpoint.py'})
         for name, hashes in upgrades.items():
-            self.assertEqual(hashes['after'], file_sha(folder / name))
+            pairs = hashes if isinstance(hashes, list) else [hashes]
+            self.assertTrue(any(pair['after'] == file_sha(folder / name) for pair in pairs))
+
+    def test_timing_upgrade_preserves_historical_and_logging_contracts(self):
+        from pretrain_checkpoint import file_sha
+        folder = Path(__file__).resolve().parent
+        upgrades = json.loads((folder / 'pretrain_logging_upgrade.json').read_text())
+        original = '6b0149346c419c5d76636904d3fd6f2cb77b60db015f09167f15babeb0e63782'
+        logging = '7442792d72b0d5172db727f3530eccacfcad8a787f4c3592ca318f530297712e'
+        timing = file_sha(folder / 'train_pretrain.py')
+        self.assertIn({'before': original, 'after': logging}, upgrades['train_pretrain.py'])
+        for before, after in ((original, logging), (original, timing), (logging, timing)):
+            previous = dict(config={'seed': 1}, data={'sha': 'data'},
+                            runtime={'torch': 'version'}, total_steps=2,
+                            source_sha256={'train_pretrain.py': before})
+            current = copy.deepcopy(previous)
+            current['source_sha256']['train_pretrain.py'] = after
+            self.assertIs(select_contract(current, previous), previous)
+            for section in ('config', 'data', 'runtime'):
+                changed = copy.deepcopy(current)
+                changed[section]['changed'] = True
+                with self.assertRaisesRegex(RuntimeError, 'differs'):
+                    select_contract(changed, previous)
+            for key, value in (('total_steps', 3),
+                               ('source_sha256', {'train_pretrain.py': 'unaudited'})):
+                changed = copy.deepcopy(current)
+                changed[key] = value
+                with self.assertRaisesRegex(RuntimeError, 'differs'):
+                    select_contract(changed, previous)
+            with self.assertRaisesRegex(RuntimeError, 'not audited'):
+                select_contract(previous, current)
 
 
 if __name__ == '__main__':

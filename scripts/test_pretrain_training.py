@@ -3,8 +3,9 @@ import json
 from pathlib import Path
 import random
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import torch
@@ -15,7 +16,7 @@ from pretrain_checkpoint import (CheckpointManager, IncompatibleCheckpoint, capt
 from pretrain_model import CausalLM
 from pretrain_training import (EpochBatches, TokenSchedule, evaluate, make_loader,
                                make_optimizer, seed_all, train_update)
-from train_pretrain import StopRequest, checkpoint_state
+from train_pretrain import StopRequest, checkpoint_state, train_session
 
 
 def tiny_config():
@@ -258,7 +259,8 @@ class SessionTests(unittest.TestCase):
                     state = manager.load_latest(contract)
                     upgrades = json.loads(Path(__file__).with_name('pretrain_logging_upgrade.json').read_text())
                     for name, hashes in upgrades.items():
-                        contract['source_sha256'][name] = hashes['before']
+                        pair = hashes[0] if isinstance(hashes, list) else hashes
+                        contract['source_sha256'][name] = pair['before']
                     state['contract'] = contract
                     manager.save(state)
                     atomic_json(run / 'run.json', contract)
@@ -298,6 +300,42 @@ class SessionTests(unittest.TestCase):
             failed = subprocess.run(command, capture_output=True, text=True, timeout=120)
             self.assertNotEqual(failed.returncode, 0)
             self.assertIn('differs', failed.stderr)
+
+
+class TimingTests(unittest.TestCase):
+    def test_update_duration_and_throughput_with_frozen_monotonic_clock(self):
+        # Windows 3.12 monotonic can stay unchanged during a short update.
+        clock = SimpleNamespace(monotonic=MagicMock(return_value=100.0),
+                                perf_counter=MagicMock(side_effect=[10.0, 10.000001]))
+        dataset = MagicMock()
+        dataset.__len__.return_value = 2
+        manager = MagicMock()
+        manager.load_latest.return_value = None
+        logger = MagicMock()
+        result = dict(tokens=16, samples=2, loss=1.0, grad_norm=0.0, learning_rate=0.001)
+        with tempfile.TemporaryDirectory() as tmp:
+            args = SimpleNamespace(run_dir=Path(tmp) / 'run', data=Path(tmp) / 'data',
+                                   workers=0, session_steps=1, session_minutes=None)
+            with patch.multiple('train_pretrain', time=clock,
+                                data_identity=MagicMock(return_value={}),
+                                CausalTokenDataset=MagicMock(return_value=dataset),
+                                CheckpointManager=MagicMock(return_value=manager),
+                                CausalLM=MagicMock(), make_optimizer=MagicMock(),
+                                TokenSchedule=MagicMock(), make_loader=MagicMock(),
+                                train_update=MagicMock(return_value=result),
+                                checkpoint_state=MagicMock(), atomic_json=MagicMock(),
+                                seed_all=MagicMock()):
+                train_session(args, tiny_config(), torch.device('cpu'), logger)
+        events = [call.kwargs for call in logger.emit.call_args_list if call.args[0] == 'train']
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        elapsed = 10.000001 - 10.0
+        self.assertEqual(clock.perf_counter.call_count, 2)
+        self.assertEqual(event['seconds'], elapsed)
+        self.assertEqual(event['training_seconds'], elapsed)
+        self.assertEqual(event['tokens_per_second'], result['tokens'] / elapsed)
+        self.assertEqual(event['global_step'], 1)
+        self.assertEqual(event['tokens_seen'], result['tokens'])
 
 
 class CheckpointTests(unittest.TestCase):

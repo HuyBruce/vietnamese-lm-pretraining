@@ -15,7 +15,10 @@ def select_contract(current, previous, upgrades=None):
     upgraded = dict(previous, source_sha256=dict(old_sources))
     for name, old_hash in old_sources.items():
         if old_hash != new_sources[name]:
-            if upgrades.get(name) != {'before': old_hash, 'after': new_sources[name]}:
+            pairs = upgrades.get(name, [])
+            if isinstance(pairs, dict):
+                pairs = [pairs]
+            if {'before': old_hash, 'after': new_sources[name]} not in pairs:
                 raise RuntimeError('Run config/data/code/runtime differs; source upgrade is not audited')
             upgraded['source_sha256'][name] = new_sources[name]
     if upgraded != current:

@@ -192,11 +192,11 @@ def train_session(args, config, device, logger):
             loader = make_loader(train, training, progress['epoch'], progress['cursor'], args.workers, device)
             iterator = iter(loader)
             while progress['cursor'] < len(train) and not stop.requested and not session_limit():
-                before = time.monotonic()
+                before = time.perf_counter()
                 result = train_update(model, optimizer, scheduler, iterator, training, device)
                 if result is None:
                     raise RuntimeError('Data loader ended before the committed cursor')
-                elapsed = time.monotonic() - before
+                elapsed = time.perf_counter() - before
                 progress['cursor'] += result['samples']
                 progress['tokens_seen'] += result['tokens']
                 progress['global_step'] += 1
